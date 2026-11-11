@@ -1,0 +1,49 @@
+services:
+  # Base de Datos de Series Temporales y Relacional
+  timescaledb:
+    image: timescale/timescaledb-ha:pg16
+    container_name: stv_timescaledb
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: stv_postgres_2026
+      POSTGRES_DB: stv_timescale
+    ports:
+      - "5432:5432"
+    volumes:
+      - timescaledb_data:/home/postgres/pgdata/data
+      - ./docs/database_schema.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d stv_timescale"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # In-memory Cache y Message Broker interno
+  redis:
+    image: redis:7.2-alpine
+    container_name: stv_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  # Broker MQTT 5.0 para telemetría IoT de alta concurrencia
+  emqx:
+    image: emqx/emqx:5.6.1
+    container_name: stv_emqx
+    restart: unless-stopped
+    ports:
+      - "1883:1883"     # MQTT TCP plano (desarrollo)
+      - "8883:8883"     # MQTT sobre TLS (producción)
+      - "18083:18083"   # Dashboard web de gestión EMQX
+    environment:
+      EMQX_DASHBOARD__DEFAULT_PASSWORD: stv_emqx_admin_2026
+    volumes:
+      - emqx_data:/opt/emqx/data
+
+volumes:
+  timescaledb_data:
+  redis_data:
+  emqx_data:

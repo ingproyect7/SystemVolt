@@ -1,0 +1,125 @@
+{
+  "classifier_accuracy_pct": 100.0,
+  "regressor_r2_score": 0.9971,
+  "regressor_rmse_watts": 13.21,
+  "regressor_mae_watts": 9.5,
+  "normal_false_positive_rate_pct": 0.0,
+  "classes": [
+    "HOTSPOT",
+    "INVERTER_FAULT",
+    "NORMAL",
+    "SENSOR_FAULT",
+    "SHADING",
+    "SOILING",
+    "STRING_DISCONNECTED"
+  ],
+  "confusion_matrix": [
+    [
+      200,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      200,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      200,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      200,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      200,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      200,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      200
+    ]
+  ],
+  "metrics_per_class": {
+    "HOTSPOT": {
+      "precision": 100.0,
+      "recall": 100.0,
+      "f1_score": 100.0,
+      "support": 200.0
+    },
+    "INVERTER_FAULT": {
+      "precision": 100.0,
+      "recall": 100.0,
+      "f1_score": 100.0,
+      "support": 200.0
+    },
+    "NORMAL": {
+      "precision": 100.0,
+      "recall": 100.0,
+      "f1_score": 100.0,
+      "support": 200.0
+    },
+    "SENSOR_FAULT": {
+      "precision": 100.0,
+      "recall": 100.0,
+      "f1_score": 100.0,
+      "support": 200.0
+    },
+    "SHADING": {
+      "precision": 100.0,
+      "recall": 100.0,
+      "f1_score": 100.0,
+      "support": 200.0
+    },
+    "SOILING": {
+      "precision": 100.0,
+      "recall": 100.0,
+      "f1_score": 100.0,
+      "support": 200.0
+    },
+    "STRING_DISCONNECTED": {
+      "precision": 100.0,
+      "recall": 100.0,
+      "f1_score": 100.0,
+      "support": 200.0
+    }
+  }
+}
