@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Navbar } from './components/Navbar';
 import { Dashboard } from './pages/Dashboard';
 import { Monitoring } from './pages/Monitoring';
@@ -6,7 +6,7 @@ import { AIDiagnostics } from './pages/AIDiagnostics';
 import { AlertsPage } from './pages/AlertsPage';
 import { BackdoorModal } from './components/BackdoorModal';
 import { apiService } from './services/api';
-import { PlantSummary, TelemetryPoint, SystemAlert } from './types/solar';
+import { PlantSummary, TelemetryPoint, SystemAlert, AIDiagnostic } from './types/solar';
 
 export const App: React.FC = () => {
   const [currentTab, setCurrentTab] = useState<string>('dashboard');
@@ -26,31 +26,30 @@ export const App: React.FC = () => {
   });
   const [telemetry, setTelemetry] = useState<TelemetryPoint[]>([]);
   const [alerts, setAlerts] = useState<SystemAlert[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [diagnostic, setDiagnostic] = useState<AIDiagnostic | null>(null);
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
-      const [sumData, teleData, alertsData] = await Promise.all([
+      const [sumData, teleData, alertsData, diagData] = await Promise.all([
         apiService.getPlantSummary('plant-01'),
-        apiService.getTelemetryHistory('plant-01', 24),
-        apiService.getAlerts('plant-01')
+        apiService.getTelemetryHistory('plant-01', 100),
+        apiService.getAlerts('plant-01'),
+        apiService.getLatestDiagnostic('plant-01')
       ]);
       setSummary(sumData);
       setTelemetry(teleData);
       setAlerts(alertsData);
+      setDiagnostic(diagData);
     } catch (err) {
       console.error("Error al consultar telemetría:", err);
-    } finally {
-      setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     loadData();
-    // Refresco periódico cada 10 segundos
     const interval = setInterval(loadData, 10000);
     return () => clearInterval(interval);
-  }, []);
+  }, [loadData]);
 
   const handleAcknowledgeAlert = async (alertId: string) => {
     await apiService.acknowledgeAlert(alertId);
@@ -72,6 +71,7 @@ export const App: React.FC = () => {
           <Dashboard
             summary={summary}
             telemetry={telemetry}
+            diagnostic={diagnostic}
             onNavigateToAlerts={() => setCurrentTab('ai')}
             onOpenBackdoor={() => setIsBackdoorOpen(true)}
           />
@@ -85,7 +85,10 @@ export const App: React.FC = () => {
         )}
 
         {currentTab === 'ai' && (
-          <AIDiagnostics />
+          <AIDiagnostics
+            diagnostic={diagnostic}
+            hasActiveTelemetry={telemetry.length > 0}
+          />
         )}
 
         {currentTab === 'alerts' && (

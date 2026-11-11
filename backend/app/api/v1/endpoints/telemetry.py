@@ -29,6 +29,7 @@ def ingest_telemetry_point(payload: TelemetryIngestPayload, db: Session = Depend
             "timestamp": record.time.isoformat()
         }
     except Exception as e:
+        db.rollback()
         raise HTTPException(status_code=400, detail=f"Error procesando telemetría: {str(e)}")
 
 
@@ -45,6 +46,7 @@ def ingest_telemetry_batch(batch_payload: TelemetryBatchIngestPayload, db: Sessi
             TelemetryService.process_and_store_telemetry(db, item)
             processed_count += 1
         except Exception as e:
+            db.rollback()
             errors.append(str(e))
 
     return {

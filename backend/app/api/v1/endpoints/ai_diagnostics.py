@@ -39,10 +39,10 @@ def run_direct_ai_inference(req: DirectInferenceRequest):
         i_dc=req.i_dc,
         g_irradiance=req.g_irradiance,
         t_panel=req.t_panel,
-        t_ambient=req.t_ambient,
-        rh_ambient=req.rh_ambient,
-        hour_of_day=req.hour_of_day,
-        plant_id=req.plant_id
+        t_ambient=req.t_ambient if req.t_ambient is not None else 25.0,
+        rh_ambient=req.rh_ambient if req.rh_ambient is not None else 50.0,
+        hour_of_day=req.hour_of_day if req.hour_of_day is not None else 12.0,
+        plant_id=req.plant_id or "plant-01"
     )
     return result
 

@@ -28,29 +28,35 @@ class SensorWatchdogService:
         flagged_count = 0
 
         for dev in devices:
-            if dev.last_seen and dev.last_seen.replace(tzinfo=timezone.utc) < threshold_time:
-                dev.status = "offline"
-                flagged_count += 1
-
-                # Generar alerta técnica de pérdida de enlace
-                alert = SystemAlert(
-                    plant_id=dev.plant_id or "default-plant",
-                    severity="warning",
-                    title="Pérdida de Comunicación con Gateway IoT",
-                    description=(
-                        f"El dispositivo {dev.hardware_uid} dejó de transmitir telemetría hace más de "
-                        f"{timeout_seconds} segundos. La instalación fotovoltaica puede estar operando con normalidad, "
-                        f"pero el enlace de red (Wi-Fi/4G) está caído."
-                    ),
-                    recommended_action="Revisar alimentación del gateway ESP32, cobertura de señal y router local.",
-                    evidence_metrics={
-                        "device_uid": dev.hardware_uid,
-                        "last_seen": dev.last_seen.isoformat(),
-                        "timeout_seconds": timeout_seconds
-                    },
-                    status="pending"
+            if dev.last_seen:
+                last_seen_utc = (
+                    dev.last_seen
+                    if dev.last_seen.tzinfo is not None
+                    else dev.last_seen.replace(tzinfo=timezone.utc)
                 )
-                db.add(alert)
+                if last_seen_utc < threshold_time:
+                    dev.status = "offline"
+                    flagged_count += 1
+
+                    # Generar alerta técnica de pérdida de enlace
+                    alert = SystemAlert(
+                        plant_id=dev.plant_id or "default-plant",
+                        severity="warning",
+                        title="Pérdida de Comunicación con Gateway IoT",
+                        description=(
+                            f"El dispositivo {dev.hardware_uid} dejó de transmitir telemetría hace más de "
+                            f"{timeout_seconds} segundos. La instalación fotovoltaica puede estar operando con normalidad, "
+                            f"pero el enlace de red (Wi-Fi/4G) está caído."
+                        ),
+                        recommended_action="Revisar alimentación del gateway ESP32, cobertura de señal y router local.",
+                        evidence_metrics={
+                            "device_uid": dev.hardware_uid,
+                            "last_seen": dev.last_seen.isoformat(),
+                            "timeout_seconds": timeout_seconds
+                        },
+                        status="pending"
+                    )
+                    db.add(alert)
 
         if flagged_count > 0:
             db.commit()
@@ -69,12 +75,13 @@ class SensorWatchdogService:
         Detecta si una anomalía corresponde a una falla instrumental de sensor
         antes de culpar al generador solar.
         """
-        # Caso A: Irradiancia 0 a pleno mediodía con tensión o corriente activa
-        if (10.0 <= hour_of_day <= 14.5) and g_irr < 5.0 and (v_dc > 50.0 or i_dc > 0.5):
+        # Caso A: Irradiancia ~0 W/m² con generación eléctrica real activa (>25W) o al mediodía solar
+        # Físicamente imposible generar >50V e >0.5A sin irradiancia solar, independientemente del huso horario UTC/local
+        if g_irr < 5.0 and ((v_dc > 50.0 and i_dc > 0.5) or ((10.0 <= hour_of_day <= 14.5) and (v_dc > 50.0 or i_dc > 0.5))):
             return {
                 "sensor_fault": True,
                 "sensor_name": "Piranómetro / Célula Solar Calibrada",
-                "diagnosis": "Lectura de radiación nula (0 W/m²) a mediodía con generación eléctrica activa.",
+                "diagnosis": "Lectura de radiación nula (0 W/m²) con generación eléctrica activa en el arreglo.",
                 "action": "Verificar conexión RS-485 del piranómetro y suciedad en el domo óptico."
             }
 

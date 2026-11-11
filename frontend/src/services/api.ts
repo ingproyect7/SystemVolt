@@ -5,12 +5,23 @@
  */
 import { SolarPlant, PlantSummary, TelemetryPoint, SystemAlert, AIDiagnostic } from '../types/solar';
 
-const API_BASE = '/api/v1';
+const ENV_API = (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_API_URL;
+const API_BASE = ENV_API ? `${ENV_API.replace(/\/$/, '')}/api/v1` : '/api/v1';
 
 // Estado en memoria para telemetría inyectada por puerta trasera en el navegador
 let localInjectedTelemetry: TelemetryPoint[] = [];
 let localInjectedAlerts: SystemAlert[] = [];
 let localInjectedDiagnostic: AIDiagnostic | null = null;
+
+async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(url, options);
+  const contentType = res.headers.get('content-type') || '';
+  // Proteger contra rewrites SPA de Vercel que devuelven index.html (200 OK text/html)
+  if (!res.ok || !contentType.includes('application/json')) {
+    throw new Error(`API no disponible (${res.status})`);
+  }
+  return await res.json() as T;
+}
 
 export const apiService = {
   // --- PUERTA TRASERA: MÉTODOS DE INYECCIÓN Y RESET ---
@@ -37,9 +48,7 @@ export const apiService = {
   // --- CONSULTAS PRINCIPALES ---
   async getPlants(): Promise<SolarPlant[]> {
     try {
-      const res = await fetch(`${API_BASE}/plants/`);
-      if (!res.ok) throw new Error();
-      return await res.json();
+      return await fetchJson<SolarPlant[]>(`${API_BASE}/plants/`);
     } catch {
       return [
         {
@@ -59,28 +68,25 @@ export const apiService = {
   },
 
   async getPlantSummary(plantId: string): Promise<PlantSummary> {
-    try {
-      const res = await fetch(`${API_BASE}/plants/${plantId}/summary`);
-      if (!res.ok) throw new Error();
-      const data = await res.json();
-      return data;
-    } catch {
-      // Si hay datos cargados por puerta trasera, calcular métricas a partir de la última muestra
-      if (localInjectedTelemetry.length > 0) {
-        const last = localInjectedTelemetry[localInjectedTelemetry.length - 1];
-        return {
-          plant_id: plantId,
-          name: 'Planta Solar Fotovoltaica (Producción)',
-          installed_capacity_kw: 1.0,
-          current_power_w: last.p_dc,
-          current_irradiance_w_m2: last.g_irradiance,
-          current_t_panel_c: last.t_panel,
-          performance_ratio: last.performance_ratio,
-          active_alerts_count: localInjectedAlerts.filter(a => a.status === 'pending').length,
-          last_updated: new Date().toISOString()
-        };
-      }
+    // Si hay datos cargados por puerta trasera, priorizarlos hasta que se resetee a cero
+    if (localInjectedTelemetry.length > 0) {
+      const last = localInjectedTelemetry[localInjectedTelemetry.length - 1];
+      return {
+        plant_id: plantId,
+        name: 'Planta Solar Fotovoltaica (Laboratorio / Simulación)',
+        installed_capacity_kw: 1.0,
+        current_power_w: last.p_dc,
+        current_irradiance_w_m2: last.g_irradiance,
+        current_t_panel_c: last.t_panel,
+        performance_ratio: last.performance_ratio,
+        active_alerts_count: localInjectedAlerts.filter(a => a.status === 'pending').length,
+        last_updated: new Date().toISOString()
+      };
+    }
 
+    try {
+      return await fetchJson<PlantSummary>(`${API_BASE}/plants/${plantId}/summary`);
+    } catch {
       // SISTEMA REAL EN PRODUCCIÓN SIN HARDWARE: ESTRICTAMENTE 0
       return {
         plant_id: plantId,
@@ -97,45 +103,64 @@ export const apiService = {
   },
 
   async getTelemetryHistory(plantId: string, limit: number = 24): Promise<TelemetryPoint[]> {
+    if (localInjectedTelemetry.length > 0) {
+      return localInjectedTelemetry.slice(-limit);
+    }
+
     try {
-      const res = await fetch(`${API_BASE}/telemetry/history?plant_id=${plantId}&limit=${limit}`);
-      if (!res.ok) throw new Error();
-      return await res.json();
+      return await fetchJson<TelemetryPoint[]>(`${API_BASE}/telemetry/history?plant_id=${plantId}&limit=${limit}`);
     } catch {
-      // Si se inyectaron datos por la puerta trasera, retornar esos datos
-      if (localInjectedTelemetry.length > 0) {
-        return localInjectedTelemetry.slice(-limit);
-      }
       // POR DEFECTO: VACÍO (SIN SEÑAL)
       return [];
     }
   },
 
   async getAlerts(plantId?: string): Promise<SystemAlert[]> {
+    if (localInjectedTelemetry.length > 0) {
+      return localInjectedAlerts;
+    }
+
     try {
       const url = plantId ? `${API_BASE}/alerts/?plant_id=${plantId}` : `${API_BASE}/alerts/`;
-      const res = await fetch(url);
-      if (!res.ok) throw new Error();
-      return await res.json();
+      return await fetchJson<SystemAlert[]>(url);
     } catch {
-      if (localInjectedAlerts.length > 0) {
-        return localInjectedAlerts;
-      }
       // SIN HARDWARE = CERO ALERTAS FALSAS
       return [];
     }
   },
 
-  async acknowledgeAlert(alertId: string): Promise<void> {
+  async getLatestDiagnostic(plantId: string): Promise<AIDiagnostic | null> {
+    if (localInjectedTelemetry.length > 0) {
+      return localInjectedDiagnostic;
+    }
+
     try {
-      await fetch(`${API_BASE}/alerts/${alertId}/acknowledge`, {
+      return await fetchJson<AIDiagnostic>(`${API_BASE}/ai/latest?plant_id=${plantId}`);
+    } catch {
+      return null;
+    }
+  },
+
+  async acknowledgeAlert(alertId: string): Promise<void> {
+    if (localInjectedTelemetry.length > 0) {
+      localInjectedAlerts = localInjectedAlerts.map(a =>
+        a.id === alertId ? { ...a, status: 'acknowledged' } : a
+      );
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/alerts/${alertId}/acknowledge`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ note: 'Reconocido por operador.' })
       });
+      const contentType = res.headers.get('content-type') || '';
+      if (!res.ok || !contentType.includes('application/json')) {
+        throw new Error(`HTTP ${res.status}`);
+      }
     } catch {
-      // Actualizar localmente si está en modo puerta trasera
-      localInjectedAlerts = localInjectedAlerts.map(a => 
+      localInjectedAlerts = localInjectedAlerts.map(a =>
         a.id === alertId ? { ...a, status: 'acknowledged' } : a
       );
     }

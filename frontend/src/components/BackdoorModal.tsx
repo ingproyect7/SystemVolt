@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Upload, X, Check, AlertCircle, RefreshCw, FileText, Sparkles, Terminal } from 'lucide-react';
 import { apiService } from '../services/api';
 import { TelemetryPoint, SystemAlert, AIDiagnostic } from '../types/solar';
@@ -9,9 +9,118 @@ interface BackdoorModalProps {
   onDataChanged: () => void;
 }
 
+const parseNum = (val: unknown, fallback: number): number => {
+  if (val === undefined || val === null || val === '') return fallback;
+  const n = Number(val);
+  return Number.isFinite(n) ? n : fallback;
+};
+
+const formatDisplayTime = (raw: unknown, fallback: string): string => {
+  if (!raw || typeof raw !== 'string') return fallback;
+  const isoMatch = raw.match(/T(\d{2}:\d{2})/);
+  if (isoMatch) return isoMatch[1];
+  return raw;
+};
+
+/** Modelo físico Sandia simplificado para estimar P_esperada cuando no viene en el CSV/JSON */
+const estimateExpectedPower = (gIrr: number, tPanel: number): number => {
+  if (gIrr <= 5) return 0;
+  const ratioG = gIrr / 1000.0;
+  const thermal = Math.max(0.1, 1.0 - 0.0038 * (tPanel - 25.0));
+  return +Math.max(0, 1000.0 * ratioG * thermal * 0.975).toFixed(2);
+};
+
+/** Analiza los puntos inyectados desde archivo para generar alertas y diagnóstico IA coherente */
+const analyzeUploadedTelemetry = (points: TelemetryPoint[]): { alerts: SystemAlert[]; diagnostic: AIDiagnostic | null } => {
+  if (points.length === 0) return { alerts: [], diagnostic: null };
+
+  const alerts: SystemAlert[] = [];
+  let worstPoint: TelemetryPoint | null = null;
+  let worstLossPct = -1;
+
+  points.forEach((pt, idx) => {
+    if (pt.g_irradiance >= 200 && pt.p_expected > 50) {
+      const lossPct = Math.max(0, ((pt.p_expected - pt.p_dc) / pt.p_expected) * 100);
+      if (lossPct > 25) {
+        if (lossPct > worstLossPct) {
+          worstLossPct = lossPct;
+          worstPoint = pt;
+        }
+        const severity = lossPct > 45 ? 'critical' : 'warning';
+        alerts.push({
+          id: `alert-file-${idx}`,
+          plant_id: 'plant-01',
+          severity,
+          title: `${severity === 'critical' ? 'Pérdida Crítica' : 'Bajo Rendimiento'} a las ${pt.time} (-${lossPct.toFixed(1)}%)`,
+          description: `Bajo irradiancia de ${pt.g_irradiance} W/m² y ${pt.t_panel}°C, la potencia real fue ${pt.p_dc} W frente a ${pt.p_expected} W esperados.`,
+          recommended_action: lossPct > 45
+            ? 'Inspeccionar sombreado severo, diodos de bypass o desconexión de string.'
+            : 'Verificar limpieza superficial (soiling) o suciedad atmosférica en módulos.',
+          evidence_metrics: {
+            p_actual: pt.p_dc,
+            p_expected: pt.p_expected,
+            loss_percentage: +lossPct.toFixed(2),
+            g_irradiance: pt.g_irradiance,
+            t_panel: pt.t_panel
+          },
+          status: 'pending',
+          created_at: new Date().toISOString()
+        });
+      }
+    }
+  });
+
+  const target = worstPoint || points.slice().reverse().find(p => p.g_irradiance > 50) || points[points.length - 1];
+  const deltaP = Math.max(0, +(target.p_expected - target.p_dc).toFixed(2));
+  const lossPct = target.p_expected > 15 ? +((deltaP / target.p_expected) * 100).toFixed(2) : 0;
+  const isAnomaly = lossPct > 25 && target.g_irradiance >= 200;
+
+  let faultCat: AIDiagnostic['fault_category'] = 'NORMAL';
+  if (isAnomaly) {
+    if (target.i_dc < 0.2 && target.v_dc > 100) faultCat = 'INVERTER_FAULT';
+    else if (lossPct >= 45) faultCat = 'SHADING';
+    else faultCat = 'SOILING';
+  }
+
+  const diagnostic: AIDiagnostic = {
+    id: 'diag-file-01',
+    plant_id: 'plant-01',
+    timestamp: new Date().toISOString(),
+    is_anomaly: isAnomaly,
+    anomaly_score: isAnomaly ? -0.38 : 0.15,
+    fault_category: faultCat,
+    confidence_level: isAnomaly ? 0.912 : 0.975,
+    p_expected: target.p_expected,
+    p_actual: target.p_dc,
+    delta_power: deltaP,
+    loss_percentage: lossPct,
+    root_cause_explanation: isAnomaly
+      ? `Anomalía detectada a las ${target.time} con ${target.g_irradiance} W/m² y ${target.t_panel}°C: potencia real ${target.p_dc} W frente a ${target.p_expected} W esperados (-${lossPct}%).`
+      : `Operación nominal en la serie cargada. Última muestra diurna (${target.time}): ${target.p_dc} W frente a ${target.p_expected} W esperados.`,
+    recommended_action: isAnomaly
+      ? 'Revisar sombreado en arreglo, conectores MC4, fusibles de string o limpieza de superficie según patrón horario.'
+      : 'No se requieren acciones correctivas sobre el archivo analizado.',
+    features_importance: {
+      'Déficit de Corriente DC (I)': isAnomaly ? 0.48 : 0.30,
+      'Irradiancia Incidente (G)': 0.27,
+      'Tensión Operativa (V)': 0.16,
+      'Temperatura Panel (°C)': 0.09
+    }
+  };
+
+  return { alerts: alerts.slice(0, 15), diagnostic };
+};
+
 export const BackdoorModal: React.FC<BackdoorModalProps> = ({ isOpen, onClose, onDataChanged }) => {
   const [feedback, setFeedback] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      setFeedback(null);
+      setErrorMsg(null);
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -20,7 +129,6 @@ export const BackdoorModal: React.FC<BackdoorModalProps> = ({ isOpen, onClose, o
     const points: TelemetryPoint[] = [];
     const now = new Date();
 
-    // Crear una curva previa y el punto crítico a mediodía
     for (let i = 12; i >= 0; i--) {
       const t = new Date(now.getTime() - i * 15 * 60 * 1000);
       const isCritical = i === 0;
@@ -40,6 +148,7 @@ export const BackdoorModal: React.FC<BackdoorModalProps> = ({ isOpen, onClose, o
         g_irradiance: g,
         t_panel: tPanel,
         t_ambient: 26.0,
+        rh_ambient: 55,
         p_expected: pExpected,
         performance_ratio: +(pActual / pExpected).toFixed(3)
       });
@@ -102,42 +211,68 @@ export const BackdoorModal: React.FC<BackdoorModalProps> = ({ isOpen, onClose, o
         const text = event.target?.result as string;
         let points: TelemetryPoint[] = [];
 
-        if (file.name.endsWith('.json')) {
+        if (file.name.toLowerCase().endsWith('.json')) {
           const raw = JSON.parse(text);
           const list = Array.isArray(raw) ? raw : [raw];
-          points = list.map((item, idx) => ({
-            time: item.time || item.timestamp || `T-${idx}`,
-            v_dc: Number(item.v_dc || item.v || 340),
-            i_dc: Number(item.i_dc || item.i || 2.5),
-            p_dc: Number(item.p_actual_dc || item.p_dc || item.p || 850),
-            g_irradiance: Number(item.irradiance_w_m2 || item.g_irradiance || item.g || 800),
-            t_panel: Number(item.panel_temp_c || item.t_panel || item.t || 42),
-            t_ambient: Number(item.ambient_temp_c || item.t_ambient || 25),
-            p_expected: Number(item.p_expected_theor || item.p_expected || 820),
-            performance_ratio: item.performance_ratio || null
-          }));
-        } else if (file.name.endsWith('.csv')) {
-          const lines = text.split('\n').filter(l => l.trim().length > 0);
-          const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
-          
+          points = list.map((item: Record<string, unknown>, idx: number) => {
+            const vDC = parseNum(item.v_dc ?? item.voltage ?? item.v, 0);
+            const iDC = parseNum(item.i_dc ?? item.current ?? item.i, 0);
+            const pDC = parseNum(item.p_actual_dc ?? item.p_dc ?? item.power ?? item.p, +(vDC * iDC).toFixed(2));
+            const gIrr = parseNum(item.irradiance_w_m2 ?? item.g_irradiance ?? item.irradiance ?? item.g, 0);
+            const tPanel = parseNum(item.panel_temp_c ?? item.t_panel ?? item.panel_temp ?? item.t, 25);
+            const tAmb = parseNum(item.ambient_temp_c ?? item.t_ambient ?? item.ambient_temp, 25);
+            const rawExp = item.p_expected_theor ?? item.p_expected ?? item.expected_power;
+            const pExp = rawExp !== undefined ? parseNum(rawExp, 0) : estimateExpectedPower(gIrr, tPanel);
+            const pr = item.performance_ratio !== undefined
+              ? (item.performance_ratio === null ? null : parseNum(item.performance_ratio, 0))
+              : (pExp > 15 ? +(pDC / pExp).toFixed(3) : null);
+
+            return {
+              time: formatDisplayTime(item.time ?? item.timestamp, `T-${idx + 1}`),
+              v_dc: vDC,
+              i_dc: iDC,
+              p_dc: pDC,
+              g_irradiance: gIrr,
+              t_panel: tPanel,
+              t_ambient: tAmb,
+              rh_ambient: item.rh_ambient !== undefined ? parseNum(item.rh_ambient, 50) : undefined,
+              p_expected: pExp,
+              performance_ratio: pr
+            };
+          });
+        } else if (file.name.toLowerCase().endsWith('.csv')) {
+          const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
+          if (lines.length < 2) {
+            throw new Error('El CSV debe incluir cabecera y al menos una fila de datos.');
+          }
+          const sep = lines[0].includes(';') && !lines[0].includes(',') ? ';' : ',';
+          const headers = lines[0].split(sep).map(h => h.trim().replace(/^"|"$/g, '').toLowerCase());
+
           for (let i = 1; i < lines.length; i++) {
-            const cols = lines[i].split(',').map(c => c.trim());
-            const row: any = {};
-            headers.forEach((h, idx) => { row[h] = cols[idx]; });
-            
-            const pReal = Number(row.p_dc || row.p_actual_dc || (Number(row.v_dc) * Number(row.i_dc)) || 0);
-            const pExp = Number(row.p_expected || 800);
+            const cols = lines[i].split(sep).map(c => c.trim().replace(/^"|"$/g, ''));
+            const row: Record<string, string> = {};
+            headers.forEach((h, idx) => { row[h] = cols[idx] ?? ''; });
+
+            const vDC = parseNum(row.v_dc ?? row.voltage ?? row.voltaje ?? row.v, 0);
+            const iDC = parseNum(row.i_dc ?? row.current ?? row.corriente ?? row.i, 0);
+            const pReal = parseNum(row.p_dc ?? row.p_actual_dc ?? row.power ?? row.potencia, +(vDC * iDC).toFixed(2));
+            const gIrr = parseNum(row.g_irradiance ?? row.irradiance_w_m2 ?? row.irradiance ?? row.irradiancia ?? row.ghi ?? row.g, 0);
+            const tPanel = parseNum(row.t_panel ?? row.panel_temp_c ?? row.panel_temp ?? row.temp_panel ?? row.t, 25);
+            const tAmb = parseNum(row.t_ambient ?? row.ambient_temp_c ?? row.ambient_temp, 24);
+            const rawExp = row.p_expected ?? row.p_expected_theor ?? row.expected_power;
+            const pExp = rawExp !== undefined && rawExp !== '' ? parseNum(rawExp, 0) : estimateExpectedPower(gIrr, tPanel);
 
             points.push({
-              time: row.time || row.timestamp || `Muest-${i}`,
-              v_dc: Number(row.v_dc || 0),
-              i_dc: Number(row.i_dc || 0),
+              time: formatDisplayTime(row.time ?? row.timestamp, `Muest-${i}`),
+              v_dc: vDC,
+              i_dc: iDC,
               p_dc: pReal,
-              g_irradiance: Number(row.g_irradiance || row.irradiance || 0),
-              t_panel: Number(row.t_panel || row.panel_temp || 25),
-              t_ambient: Number(row.t_ambient || 24),
+              g_irradiance: gIrr,
+              t_panel: tPanel,
+              t_ambient: tAmb,
+              rh_ambient: row.rh_ambient ? parseNum(row.rh_ambient, 50) : undefined,
               p_expected: pExp,
-              performance_ratio: pExp > 0 ? +(pReal / pExp).toFixed(3) : null
+              performance_ratio: pExp > 15 ? +(pReal / pExp).toFixed(3) : null
             });
           }
         } else {
@@ -148,16 +283,19 @@ export const BackdoorModal: React.FC<BackdoorModalProps> = ({ isOpen, onClose, o
           throw new Error('El archivo no contiene filas o datos interpretables.');
         }
 
-        apiService.setInjectedData(points);
-        setFeedback(`¡Archivo '${file.name}' cargado con éxito! Total puntos inyectados: ${points.length}`);
+        const { alerts, diagnostic } = analyzeUploadedTelemetry(points);
+        apiService.setInjectedData(points, alerts, diagnostic);
+        setFeedback(`¡Archivo '${file.name}' cargado! Puntos: ${points.length} | Alertas detectadas: ${alerts.length}`);
         setErrorMsg(null);
         onDataChanged();
-      } catch (err: any) {
-        setErrorMsg(`Error procesando archivo: ${err.message}`);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        setErrorMsg(`Error procesando archivo: ${msg}`);
         setFeedback(null);
       }
     };
     reader.readAsText(file);
+    e.target.value = '';
   };
 
   // --- OPCIÓN 3: RESTABLECER A CERO (MODO PRODUCCIÓN LIMPIO) ---
@@ -185,7 +323,7 @@ export const BackdoorModal: React.FC<BackdoorModalProps> = ({ isOpen, onClose, o
           </div>
           <div>
             <h3 className="text-base font-bold text-white flex items-center gap-2">
-              PUERTA TRASERA: LABORATORIO DE CALIBRACIÓN & INYECCIÓN
+              PUERTA TRASERA: LABORATORIO DE CALIBRACIÓN &amp; INYECCIÓN
             </h3>
             <p className="text-xs text-slate-400">Permite simular datos reales de campo cuando no hay hardware físico conectado</p>
           </div>

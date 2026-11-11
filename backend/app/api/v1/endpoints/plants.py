@@ -3,7 +3,7 @@ Endpoints REST para la gestión de Plantas Solares Fotovoltaicas.
 """
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
@@ -29,8 +29,7 @@ class SolarPlantCreate(BaseModel):
 class SolarPlantResponse(SolarPlantCreate):
     id: str
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 @router.post("/", response_model=SolarPlantResponse, status_code=status.HTTP_201_CREATED)

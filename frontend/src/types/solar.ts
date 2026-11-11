@@ -36,6 +36,7 @@ export interface TelemetryPoint {
   g_irradiance: number;
   t_panel: number;
   t_ambient: number;
+  rh_ambient?: number;
   p_expected: number;
   performance_ratio: number | null;
 }

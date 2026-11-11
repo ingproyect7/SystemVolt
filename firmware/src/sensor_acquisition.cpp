@@ -89,8 +89,10 @@ TelemetrySample readSensorsFiltered() {
     sample.p_dc = sample.v_dc * sample.i_dc;
 
     // 4. LECTURA DE TEMPERATURA Y HUMEDAD AMBIENTE (SHT31)
-    sample.t_ambient = sht31.readTemperature();
-    sample.rh_ambient = sht31.readHumidity();
+    float t_amb_raw = sht31.readTemperature();
+    float rh_raw = sht31.readHumidity();
+    sample.t_ambient = isnan(t_amb_raw) ? 25.0f : t_amb_raw;
+    sample.rh_ambient = isnan(rh_raw) ? 50.0f : rh_raw;
 
     // 5. TEMPERATURA DEL PANEL FOTOVOLTAICO
     // En ausencia de radiación extrema, T_panel = T_amb + G * (NOCT-20)/800

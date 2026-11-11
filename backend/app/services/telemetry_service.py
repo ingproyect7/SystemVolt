@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
 from backend.app.models.entities import PlantTelemetry, SolarPlant, SystemAlert, AIDiagnostic
+from backend.app.schemas.alert import FaultCategory
 from backend.app.schemas.telemetry import TelemetryIngestPayload
 from backend.app.services.alert_dispatcher import AlertDispatcher
 from backend.app.services.sensor_watchdog_service import SensorWatchdogService
@@ -63,9 +64,10 @@ class TelemetryService:
             device_uid=payload.device_uid
         )
 
-        # Si el watchdog detectó falla de sensor, ajustar el diagnóstico
+        # Si el watchdog detectó falla de sensor, ajustar el diagnóstico y categoría
         if sensor_issue:
             diag_result.is_anomaly = True
+            diag_result.fault_category = FaultCategory.SENSOR_FAULT
             diag_result.root_cause_explanation = sensor_issue["diagnosis"]
             diag_result.recommended_action = sensor_issue["action"]
             diag_result.confidence_level = 0.99
@@ -160,10 +162,12 @@ class TelemetryService:
         plant_id: str,
         limit: int = 100
     ) -> List[PlantTelemetry]:
-        return (
+        records = (
             db.query(PlantTelemetry)
             .filter(PlantTelemetry.plant_id == plant_id)
             .order_by(desc(PlantTelemetry.time))
             .limit(limit)
             .all()
         )
+        # Retornar en orden cronológico ascendente para series temporales y lectura de última muestra
+        return list(reversed(records))

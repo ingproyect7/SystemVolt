@@ -86,7 +86,7 @@ void TaskCommunication(void* pvParameters) {
 
                 if (published) {
                     digitalWrite(PIN_LED_STATUS_MQTT, HIGH);
-                    delay(20);
+                    vTaskDelay(pdMS_TO_TICKS(20));
                     digitalWrite(PIN_LED_STATUS_MQTT, LOW);
                 } else {
                     // SI NO HAY CONEXIÓN A INTERNET / BROKER:

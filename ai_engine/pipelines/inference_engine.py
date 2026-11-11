@@ -143,8 +143,11 @@ class PVInferenceEngine:
                 explanation = f"Disminución homogénea de corriente con tensión nominal estable. Compatible con acumulación progresiva de polvo o suciedad atmosférica (pérdida del {loss_pct}%)."
                 recommendation = "Programar jornada de limpieza y lavado de módulos con agua desmineralizada al amanecer o atardecer."
             elif fault_cat == FaultCategory.STRING_DISCONNECTED:
-                explanation = f"Corriente en 0.0 A con voltaje elevado a tensión de circuito abierto ({v_dc} V). Desconexión completa del string."
-                recommendation = "Verificar inmediatamente fusible gPV en string box, seccionador bajo carga y conectores MC4."
+                if i_dc < 0.2:
+                    explanation = f"Corriente en 0.0 A con voltaje elevado a tensión de circuito abierto ({v_dc} V). Desconexión completa del string."
+                else:
+                    explanation = f"Caída abrupta de corriente a {i_dc} A (~50% de pérdida) manteniendo tensión operativa estable ({v_dc} V), compatible con apertura de una cadena en paralelo o fusible gPV fundido."
+                recommendation = "Verificar inmediatamente fusibles gPV en string box, seccionador bajo carga y conectores MC4."
             elif fault_cat == FaultCategory.INVERTER_FAULT:
                 explanation = f"Inversor sin inyección AC ni absorción de corriente DC a pesar de alta radiación ({g_irradiance} W/m²)."
                 recommendation = "Revisar código de alarma en pantalla del inversor, magnetotérmico AC y protecciones de red."
@@ -155,8 +158,13 @@ class PVInferenceEngine:
                 explanation = "Incoherencia física severa detectada entre las lecturas de los sensores."
                 recommendation = "Inspeccionar cableado de señal, bus I2C/RS-485 y calibración del piranómetro."
 
+        try:
+            parsed_plant_id = uuid.UUID(str(plant_id))
+        except (ValueError, AttributeError):
+            parsed_plant_id = uuid.uuid4()
+
         return AIDiagnosticResult(
-            plant_id=uuid.UUID(plant_id) if isinstance(plant_id, str) and len(plant_id) == 36 else uuid.uuid4(),
+            plant_id=parsed_plant_id,
             device_uid=device_uid,
             timestamp=datetime.now(timezone.utc),
             is_anomaly=is_anomaly,

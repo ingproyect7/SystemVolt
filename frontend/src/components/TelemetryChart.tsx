@@ -29,15 +29,16 @@ export const TelemetryChart: React.FC<TelemetryChartProps> = ({
   const height = 300;
   const padding = 45;
 
-  const maxPower = Math.max(...data.map(d => Math.max(d.p_expected || 0, d.p_dc || 0)), 1000);
-  const maxIrr = Math.max(...data.map(d => d.g_irradiance || 0), 1000);
+  const safeVal = (v: number | undefined | null) => Math.max(0, Number.isFinite(Number(v)) ? Number(v) : 0);
+  const maxPower = Math.max(...data.map(d => Math.max(safeVal(d.p_expected), safeVal(d.p_dc))), 1000);
 
   const getX = (index: number) => {
+    if (data.length <= 1) return width / 2;
     return padding + (index / (data.length - 1)) * (width - 2 * padding);
   };
 
   const getYPower = (val: number) => {
-    return height - padding - (val / maxPower) * (height - 2 * padding);
+    return height - padding - (safeVal(val) / maxPower) * (height - 2 * padding);
   };
 
   // Construir paths SVG
@@ -54,11 +55,11 @@ export const TelemetryChart: React.FC<TelemetryChartProps> = ({
         {/* Leyenda de colores */}
         <div className="flex items-center space-x-4 text-xs font-mono">
           <div className="flex items-center space-x-1.5">
-            <span className="w-3 h-0.5 bg-emerald-400" />
+            <span className="w-3 h-0.5 bg-emerald-400 inline-block" />
             <span className="text-slate-300">Potencia Real (W)</span>
           </div>
           <div className="flex items-center space-x-1.5">
-            <span className="w-3 h-0.5 border-t-2 border-dotted border-amber-400" />
+            <span className="w-3 h-0.5 border-t-2 border-dotted border-amber-400 inline-block" />
             <span className="text-slate-300">Potencia Esperada (W)</span>
           </div>
         </div>
@@ -102,12 +103,10 @@ export const TelemetryChart: React.FC<TelemetryChartProps> = ({
           {data.map((d, i) => {
             const x = getX(i);
             const yReal = getYPower(d.p_dc);
-            const yExp = getYPower(d.p_expected);
             const isAnomaly = d.p_expected > 200 && (d.p_dc / d.p_expected) < 0.6;
 
             return (
               <g key={i} className="cursor-pointer group">
-                {/* Marcador de anomalía si hay pérdida crítica */}
                 {isAnomaly && (
                   <circle cx={x} cy={yReal} r="7" fill="#ef4444" opacity="0.4" className="animate-ping" />
                 )}
@@ -118,9 +117,11 @@ export const TelemetryChart: React.FC<TelemetryChartProps> = ({
                   fill={isAnomaly ? "#ef4444" : "#10b981"}
                   stroke="#0f172a"
                   strokeWidth="2"
-                />
-                {/* Etiquetas de eje X (hora) cada ciertas muestras */}
-                {i % Math.ceil(data.length / 8) === 0 && (
+                >
+                  <title>{`${d.time} | Real: ${d.p_dc}W | Esperada: ${d.p_expected}W | G: ${d.g_irradiance} W/m²`}</title>
+                </circle>
+                {/* Etiquetas de eje X */}
+                {(data.length <= 12 || i % Math.ceil(data.length / 8) === 0 || i === data.length - 1) && (
                   <text x={x} y={height - 15} fill="#64748b" fontSize="10" textAnchor="middle" fontFamily="monospace">
                     {d.time}
                   </text>
@@ -132,8 +133,8 @@ export const TelemetryChart: React.FC<TelemetryChartProps> = ({
       </div>
 
       <div className="mt-3 pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400 font-mono">
-        <span>Frecuencia de agregación: 15 min</span>
-        <span className="text-amber-400/90">Modelo: Sandia PV + XGBoost Baseline</span>
+        <span>Muestras en ventana: {data.length}</span>
+        <span className="text-amber-400/90">Modelo: Sandia PV + Random Forest Baseline</span>
       </div>
     </div>
   );

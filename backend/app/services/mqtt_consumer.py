@@ -7,7 +7,7 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 
 from backend.app.core.config import settings
-from backend.app.core.database import SessionLocal
+from backend.app.core.database import get_session
 from backend.app.schemas.telemetry import TelemetryIngestPayload
 from backend.app.services.telemetry_service import TelemetryService
 
@@ -19,7 +19,7 @@ def on_message_received(payload_str: str) -> bool:
     Función de callback invocada al recibir un mensaje MQTT en el tópico 'stv/v1/+/+/telemetry'.
     Valida el JSON con Pydantic y lo delega al servicio de persistencia y análisis.
     """
-    db: Session = SessionLocal()
+    db: Session = get_session()
     try:
         data = json.loads(payload_str)
         payload = TelemetryIngestPayload(**data)

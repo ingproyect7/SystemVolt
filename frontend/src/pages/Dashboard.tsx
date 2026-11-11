@@ -3,11 +3,12 @@ import { Zap, Sun, Thermometer, AlertTriangle, Gauge, BatteryCharging, Radio, Te
 import { KPICard } from '../components/KPICard';
 import { TelemetryChart } from '../components/TelemetryChart';
 import { AIDiagnosticCard } from '../components/AIDiagnosticCard';
-import { PlantSummary, TelemetryPoint } from '../types/solar';
+import { PlantSummary, TelemetryPoint, AIDiagnostic } from '../types/solar';
 
 interface DashboardProps {
   summary: PlantSummary;
   telemetry: TelemetryPoint[];
+  diagnostic: AIDiagnostic | null;
   onNavigateToAlerts: () => void;
   onOpenBackdoor: () => void;
 }
@@ -15,11 +16,23 @@ interface DashboardProps {
 export const Dashboard: React.FC<DashboardProps> = ({
   summary,
   telemetry,
+  diagnostic,
   onNavigateToAlerts,
   onOpenBackdoor
 }) => {
   const hasTelemetry = telemetry.length > 0;
-  const isAnomaly = (summary.performance_ratio !== null && summary.performance_ratio < 0.6) || summary.active_alerts_count > 0;
+  const latest = hasTelemetry ? telemetry[telemetry.length - 1] : null;
+
+  const isAnomaly =
+    (diagnostic?.is_anomaly) ||
+    (summary.performance_ratio !== null && summary.performance_ratio < 0.6) ||
+    summary.active_alerts_count > 0;
+
+  const expectedPower = diagnostic?.p_expected ?? latest?.p_expected ?? 0;
+  const actualPower = diagnostic?.p_actual ?? summary.current_power_w;
+  const lossPercent = diagnostic
+    ? diagnostic.loss_percentage.toFixed(2)
+    : (summary.performance_ratio !== null ? ((1 - summary.performance_ratio) * 100).toFixed(1) : '0.0');
 
   return (
     <div className="space-y-6">
@@ -33,7 +46,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             <div>
               <span className="font-bold text-sm block">ALERTA CRÍTICA: PÉRDIDA SEVERA DE GENERACIÓN ENERGÉTICA</span>
               <span className="text-xs text-red-300">
-                Potencia real actual de {summary.current_power_w} W frente a 800 W esperados (-61.25% de rendimiento bajo 950 W/m²).
+                Potencia medida: {actualPower.toFixed(0)} W frente a {expectedPower.toFixed(0)} W esperados (-{lossPercent}% de rendimiento).
               </span>
             </div>
           </div>
@@ -74,7 +87,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <KPICard
           title="Potencia Generada Actual"
-          value={summary.current_power_w}
+          value={Number.isInteger(summary.current_power_w) ? summary.current_power_w : summary.current_power_w.toFixed(1)}
           unit="W"
           icon={Zap}
           subtext="Capacidad instalada: 1.0 kWp"
@@ -82,11 +95,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
         />
         <KPICard
           title="Irradiancia Incidente (G)"
-          value={summary.current_irradiance_w_m2}
+          value={Number.isInteger(summary.current_irradiance_w_m2) ? summary.current_irradiance_w_m2 : summary.current_irradiance_w_m2.toFixed(0)}
           unit="W/m²"
           icon={Sun}
           subtext={hasTelemetry ? "Medición en plano" : "Sensor en espera"}
-          trend={hasTelemetry ? "Pico diurno" : undefined}
+          trend={hasTelemetry ? "Activo" : undefined}
         />
         <KPICard
           title="Performance Ratio (PR)"
@@ -97,7 +110,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         />
         <KPICard
           title="Temperatura de Módulo"
-          value={summary.current_t_panel_c}
+          value={Number.isInteger(summary.current_t_panel_c) ? summary.current_t_panel_c : summary.current_t_panel_c.toFixed(1)}
           unit="°C"
           icon={Thermometer}
           subtext={hasTelemetry ? "Sonda PT100 activa" : "Sin lectura térmica"}
@@ -116,27 +129,29 @@ export const Dashboard: React.FC<DashboardProps> = ({
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2">
             <AIDiagnosticCard
-              isAnomaly={isAnomaly}
-              faultCategory={isAnomaly ? "DESCONEXIÓN / SOMBRA CRÍTICA" : "OPERACIÓN NORMAL"}
-              confidence={isAnomaly ? 0.933 : 0.98}
-              expectedPower={800}
-              actualPower={summary.current_power_w}
-              lossPercentage={isAnomaly ? 61.25 : 2.5}
+              isAnomaly={diagnostic ? diagnostic.is_anomaly : isAnomaly}
+              faultCategory={diagnostic ? diagnostic.fault_category : (isAnomaly ? "DESCONEXIÓN / SOMBRA CRÍTICA" : "OPERACIÓN NORMAL")}
+              confidence={diagnostic ? diagnostic.confidence_level : (isAnomaly ? 0.933 : 0.98)}
+              expectedPower={expectedPower}
+              actualPower={actualPower}
+              lossPercentage={parseFloat(lossPercent)}
               explanation={
-                isAnomaly
-                  ? "Se registra una corriente DC colapsada a 1.82 A (-60% de lo esperado para 950 W/m²), mientras el voltaje permanece en 170 V. Síntoma característico de diodos de bypass activados o apertura parcial de circuito en string."
-                  : "La planta fotovoltaica opera con normalidad siguiendo la curva teórica de máxima potencia de Sandia."
+                diagnostic?.root_cause_explanation ??
+                (isAnomaly
+                  ? `Se registra caída significativa de generación (${actualPower} W vs ${expectedPower} W esperados). Compatible con sombreado parcial o apertura de string.`
+                  : "La planta fotovoltaica opera con normalidad siguiendo la curva teórica de máxima potencia de Sandia.")
               }
               recommendation={
-                isAnomaly
-                  ? "Inspeccionar físicamente la hilera de paneles en busca de sombras proyectadas severas o falla en el seccionador del string 01."
-                  : "No se requiere mantenimiento. Mantener ciclo regular de supervisión."
+                diagnostic?.recommended_action ??
+                (isAnomaly
+                  ? "Inspeccionar físicamente la hilera de paneles en busca de sombras proyectadas o falla en el seccionador del string."
+                  : "No se requiere mantenimiento. Mantener ciclo regular de supervisión.")
               }
-              shapFeatures={{
-                "Déficit Corriente DC": 0.52,
-                "Irradiancia Elevada (950 W/m²)": 0.28,
-                "Tensión Relativamente Estable": 0.14,
-                "Gradiente Térmico": 0.06
+              shapFeatures={diagnostic?.features_importance ?? {
+                "Déficit Corriente DC": 0.50,
+                "Irradiancia Incidente": 0.28,
+                "Tensión Operativa": 0.14,
+                "Gradiente Térmico": 0.08
               }}
             />
           </div>
@@ -161,7 +176,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   <span className="text-slate-200">Allegro ACS758 Hall</span>
                 </div>
                 <div className="flex justify-between p-2 rounded bg-slate-950/60 border border-slate-800/80">
-                  <span className="text-slate-400">Buffer Store & Forward:</span>
+                  <span className="text-slate-400">Buffer Store &amp; Forward:</span>
                   <span className="text-emerald-400">Activo (0 pte)</span>
                 </div>
                 <div className="flex justify-between p-2 rounded bg-slate-950/60 border border-slate-800/80">
@@ -179,7 +194,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         <div className="p-8 rounded-xl bg-slate-900/60 border border-slate-800 text-center font-mono text-slate-400 text-xs">
           <Terminal className="h-6 w-6 text-amber-500 mx-auto mb-2 opacity-80" />
           <span>MODO PRODUCCIÓN LIMPIO: Todos los indicadores eléctricos permanecen en 0 hasta recibir paquetes de campo.</span>
-          <span className="block text-slate-500 mt-1">Utilice la opción "Puerta Trasera" en la barra superior para cargar un dataset de prueba o simular el caso de auditoría.</span>
+          <span className="block text-slate-500 mt-1">Utilice la opción &quot;Puerta Trasera&quot; en la barra superior para cargar un dataset de prueba o simular el caso de auditoría.</span>
         </div>
       )}
     </div>
