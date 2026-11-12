@@ -1,10 +1,9 @@
 """
 ENTRENAMIENTO Y SERIALIZACIÓN DE LOS MODELOS DE INTELIGENCIA ARTIFICIAL (STV)
 =============================================================================
-Entrena, valida con cross-validation (5-fold) y serializa los 3 modelos ML:
-1. Modelo Predictor de Generación: Random Forest Regressor (R² > 0.99).
-2. Modelo No Supervisado: Isolation Forest para detección de anomalías estadísticas.
-3. Modelo Clasificador Causal: Random Forest Multiclase con probabilidades e importancia XAI.
+Entrena los 3 modelos usando datos climáticos horarios reales de 250 días
+(NASA POWER Medellín 2025: 2025-01-01 a 2025-09-07), reservando los 115 días
+restantes (2025-09-08 a 2025-12-31) para evaluación out-of-time ciega.
 """
 import os
 import sys
@@ -14,31 +13,37 @@ import joblib
 # Asegurar path hacia la raíz
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 from ai_engine.pipelines.dataset_generator import generate_pv_dataset
+from ai_engine.pipelines.annual_real_dataset import build_annual_train_test_datasets, DEFAULT_NASA_CSV
 
 from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier, IsolationForest
 from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error, accuracy_score
 
 
-def train_ai_pipeline(models_dir: str = "", samples_per_category: int = 1500):
+def train_ai_pipeline(models_dir: str = "", train_days: int = 250):
     if not models_dir:
         models_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "models"))
     os.makedirs(models_dir, exist_ok=True)
 
     print("=" * 70)
-    print("INICIANDO ENTRENAMIENTO DEL PIPELINE DE IA (STV)")
+    print("INICIANDO ENTRENAMIENTO ANUAL DEL PIPELINE DE IA (STV)")
     print("=" * 70)
 
-    # 1. Generar dataset físico etiquetado (10,500 muestras por defecto)
-    print(f"\n1. Generando dataset fotovoltaico de entrenamiento ({samples_per_category} x 7 clases)...")
-    dataset_path = os.path.abspath(os.path.join(models_dir, "..", "datasets", "pv_training_dataset.csv"))
-    dataset = generate_pv_dataset(samples_per_category=samples_per_category, output_csv=dataset_path, seed=2026)
-    print(f"• Total muestras generadas: {len(dataset)}")
+    # 1. Cargar datos reales de 250 días (NASA POWER 2025) o fallback sintético
+    if os.path.exists(DEFAULT_NASA_CSV):
+        dataset, _, meta = build_annual_train_test_datasets(DEFAULT_NASA_CSV, train_days=train_days)
+        print(f"\n1. Fuente climática real: {meta['climate_source']}")
+        print(f"• Rango de entrenamiento: {meta['train_date_range']} ({meta['train_days']} días | {meta['train_diurnal_hours']} horas diurnas)")
+        print(f"• Total vectores de entrenamiento (7 clases): {len(dataset)}")
+    else:
+        print("\n1. Generando dataset fotovoltaico sintético (fallback)...")
+        dataset = generate_pv_dataset(samples_per_category=1500, seed=2026)
+        meta = {"train_days": train_days, "climate_source": "Synthetic Physics"}
 
     # ==========================================================================
-    # MODELO 1: REGRESOR PREDICTIVO DE GENERACIÓN ENERGÉTICA
+    # MODELO 1: REGRESOR PREDICTIVO DE GENERACIÓN ENERGÉTICA (Solo operación NORMAL)
     # ==========================================================================
-    print("\n2. Entrenando Modelo 1: Predictor de Generación Energética...")
+    print("\n2. Entrenando Modelo 1: Predictor de Generación Energética (250 días reales)...")
     normal_samples = [d for d in dataset if d["fault_category"] == "NORMAL"]
 
     X_reg = np.array([
@@ -47,10 +52,10 @@ def train_ai_pipeline(models_dir: str = "", samples_per_category: int = 1500):
     ])
     y_reg = np.array([d["p_dc"] for d in normal_samples])
 
-    X_train_r, X_test_r, y_train_r, y_test_r = train_test_split(X_reg, y_reg, test_size=0.2, random_state=2026)
+    X_train_r, X_test_r, y_train_r, y_test_r = train_test_split(X_reg, y_reg, test_size=0.15, random_state=2026)
 
     regressor = RandomForestRegressor(
-        n_estimators=150,
+        n_estimators=180,
         max_depth=16,
         min_samples_leaf=2,
         random_state=2026,
@@ -63,7 +68,7 @@ def train_ai_pipeline(models_dir: str = "", samples_per_category: int = 1500):
     rmse = np.sqrt(mean_squared_error(y_test_r, y_pred_r))
     mae = mean_absolute_error(y_test_r, y_pred_r)
 
-    print(f"• R² Score: {r2:.4f}")
+    print(f"• R² Score (validación interna 250 días): {r2:.4f}")
     print(f"• RMSE: {rmse:.2f} W | MAE: {mae:.2f} W")
 
     reg_path = os.path.join(models_dir, "pv_power_regressor.joblib")
@@ -80,7 +85,7 @@ def train_ai_pipeline(models_dir: str = "", samples_per_category: int = 1500):
     ])
 
     iso_forest = IsolationForest(
-        n_estimators=150,
+        n_estimators=180,
         contamination=0.03,
         random_state=2026,
         n_jobs=-1
@@ -101,29 +106,24 @@ def train_ai_pipeline(models_dir: str = "", samples_per_category: int = 1500):
     ])
     y_clf = np.array([d["fault_category"] for d in dataset])
 
-    X_train_c, X_test_c, y_train_c, y_test_c = train_test_split(
-        X_clf, y_clf, test_size=0.2, random_state=2026, stratify=y_clf
-    )
-
     classifier = RandomForestClassifier(
-        n_estimators=200,
+        n_estimators=220,
         max_depth=16,
         min_samples_leaf=2,
         class_weight="balanced",
         random_state=2026,
         n_jobs=-1
     )
-    cv_scores = cross_val_score(classifier, X_train_c, y_train_c, cv=5, n_jobs=-1)
-    classifier.fit(X_train_c, y_train_c)
+    cv_scores = cross_val_score(classifier, X_clf, y_clf, cv=5, n_jobs=-1)
+    classifier.fit(X_clf, y_clf)
 
-    y_pred_c = classifier.predict(X_test_c)
-    acc = accuracy_score(y_test_c, y_pred_c)
-    print(f"• Cross-Validation 5-Fold Accuracy: {cv_scores.mean() * 100:.2f}% (+/- {cv_scores.std() * 100:.2f}%)")
-    print(f"• Precisión en Validación (Accuracy): {acc * 100:.2f}%")
+    acc_train = accuracy_score(y_clf, classifier.predict(X_clf))
+    print(f"• Cross-Validation 5-Fold (250 días): {cv_scores.mean() * 100:.2f}% (+/- {cv_scores.std() * 100:.2f}%)")
+    print(f"• Ajuste en entrenamiento: {acc_train * 100:.2f}%")
 
     features_names = ["g_irradiance", "t_panel", "v_dc", "i_dc", "p_dc", "delta_p", "performance_ratio"]
     importances = dict(zip(features_names, classifier.feature_importances_))
-    print("• Importancia de Variables en la Decisión (Tree SHAP Weights):")
+    print("• Importancia de Variables en la Decisión (Tree Weights):")
     for k, v in sorted(importances.items(), key=lambda item: item[1], reverse=True):
         print(f"  - {k}: {v * 100:.1f}%")
 
@@ -133,21 +133,19 @@ def train_ai_pipeline(models_dir: str = "", samples_per_category: int = 1500):
         "classes": classifier.classes_.tolist(),
         "feature_importances": importances,
         "cv_accuracy_mean": float(cv_scores.mean()),
-        "training_samples": len(dataset)
+        "training_samples": len(dataset),
+        "training_metadata": meta
     }, clf_path)
     print(f"• Modelo clasificador guardado en: {clf_path}")
 
     print("\n" + "=" * 70)
-    print("PIPELINE DE MODELOS ENTRENADO Y EXPORTADO CON ÉXITO")
+    print("PIPELINE ANUAL ENTRENADO CON 250 DÍAS REALES Y EXPORTADO CON ÉXITO")
     print("=" * 70)
 
     return {
         "training_samples": len(dataset),
         "regressor_r2": r2,
-        "regressor_rmse": rmse,
-        "regressor_mae": mae,
         "cv_accuracy": float(cv_scores.mean()),
-        "classifier_accuracy": acc,
         "classes": classifier.classes_.tolist()
     }
 

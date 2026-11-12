@@ -76,7 +76,7 @@ export const AIDiagnostics: React.FC<AIDiagnosticsProps> = ({
           <p className="text-xs text-slate-300 leading-relaxed">
             Modelo supervisado de ensamble que aprende no-linealidades atmosféricas, ángulo cenital solar y radiación difusa para predecir P_esperada.
           </p>
-          <span className="mt-3 block text-[11px] font-mono text-emerald-400 font-bold">R² Score: 0.995</span>
+          <span className="mt-3 block text-[11px] font-mono text-emerald-400 font-bold">R² Score: 0.997</span>
         </div>
 
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-lg">
@@ -98,7 +98,7 @@ export const AIDiagnostics: React.FC<AIDiagnosticsProps> = ({
           <p className="text-xs text-slate-300 leading-relaxed">
             Discrimina entre sombreado, suciedad, desconexión de string, falla de inversor o hotspot térmico con explicabilidad SHAP.
           </p>
-          <span className="mt-3 block text-[11px] font-mono text-emerald-400 font-bold">Precisión: 99.86%</span>
+          <span className="mt-3 block text-[11px] font-mono text-emerald-400 font-bold">Precisión: 99.97%</span>
         </div>
       </div>
     </div>

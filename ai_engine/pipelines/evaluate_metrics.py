@@ -1,13 +1,14 @@
 """
-EVALUADOR DE RENDIMIENTO Y VALIDACIÓN ESTADÍSTICA DE IA (FASE 9)
-===============================================================
-Evalúa el desempeño de los modelos de Machine Learning sobre un conjunto de
-prueba independiente (Holdout Test Set) de 1,400 muestras no vistas.
+EVALUADOR DE RENDIMIENTO TEMPORAL (OUT-OF-TIME) DE MODELOS DE IA (FASE 9)
+========================================================================
+Evalúa los modelos entrenados con los primeros 250 días del año (2025-01-01 a 2025-09-07)
+sobre los 115 días restantes del año real de Medellín (2025-09-08 a 2025-12-31, NASA POWER).
+
 Calcula:
-1. Matriz de confusión multiclase 7x7.
+1. Matriz de confusión multiclase 7x7 sobre los 115 días de prueba.
 2. Precision, Recall, F1-Score y Soporte por categoría.
-3. Tasas de Falsos Positivos (FPR) y Falsos Negativos (FNR).
-4. Métricas de regresión (R², RMSE, MAE) sobre datos de prueba.
+3. Tasas de Falsos Positivos (FPR) en operación normal.
+4. Métricas de regresión (R², RMSE, MAE) prediciendo potencia real en los últimos 115 días.
 """
 import os
 import sys
@@ -18,6 +19,7 @@ import joblib
 # Asegurar path hacia la raíz
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 from ai_engine.pipelines.dataset_generator import generate_pv_dataset
+from ai_engine.pipelines.annual_real_dataset import build_annual_train_test_datasets, DEFAULT_NASA_CSV
 
 from sklearn.metrics import (
     confusion_matrix,
@@ -29,13 +31,12 @@ from sklearn.metrics import (
 )
 
 
-def evaluate_trained_models(models_dir: str = "", output_json: str = "") -> dict:
+def evaluate_trained_models(models_dir: str = "", output_json: str = "", train_days: int = 250) -> dict:
     if not models_dir:
         models_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "models"))
 
     clf_path = os.path.join(models_dir, "pv_fault_classifier.joblib")
     reg_path = os.path.join(models_dir, "pv_power_regressor.joblib")
-    iso_path = os.path.join(models_dir, "pv_anomaly_detector.joblib")
 
     if not os.path.exists(clf_path) or not os.path.exists(reg_path):
         raise FileNotFoundError("Modelos no encontrados. Ejecute train_models.py primero.")
@@ -44,11 +45,18 @@ def evaluate_trained_models(models_dir: str = "", output_json: str = "") -> dict
     classifier = clf_bundle["model"]
     classes = clf_bundle["classes"]
     regressor = joblib.load(reg_path)
-    iso_forest = joblib.load(iso_path) if os.path.exists(iso_path) else None
 
-    # 1. Generar conjunto de prueba independiente (Holdout Test Set)
-    print("Generando 1,400 muestras de prueba independientes (seed=9999)...")
-    test_data = generate_pv_dataset(samples_per_category=200, seed=9999)
+    # 1. Cargar los 115 días reales restantes (Días 251-365) como conjunto ciego out-of-time
+    if os.path.exists(DEFAULT_NASA_CSV):
+        _, test_data, meta = build_annual_train_test_datasets(DEFAULT_NASA_CSV, train_days=train_days)
+        print(
+            f"Evaluando Out-of-Time sobre {meta['test_days']} días reales "
+            f"({meta['test_date_range']} | {meta['test_diurnal_hours']} horas diurnas | {len(test_data)} muestras)..."
+        )
+    else:
+        print("Generando 1,400 muestras de prueba independientes (seed=9999)...")
+        test_data = generate_pv_dataset(samples_per_category=200, seed=9999)
+        meta = {"climate_source": "Synthetic Fallback", "train_days": train_days, "test_days": 115}
 
     # 2. Evaluación del Clasificador Multiclase
     X_test_clf = np.array([
@@ -62,7 +70,7 @@ def evaluate_trained_models(models_dir: str = "", output_json: str = "") -> dict
     cm = confusion_matrix(y_test_clf, y_pred_clf, labels=classes)
     clf_report = classification_report(y_test_clf, y_pred_clf, labels=classes, output_dict=True)
 
-    # 3. Evaluación del Regresor de Potencia (sobre muestras normales)
+    # 3. Evaluación del Regresor de Potencia (sobre horas diurnas NORMALES de los días 251-365)
     normal_test = [d for d in test_data if d["fault_category"] == "NORMAL"]
     X_test_reg = np.array([
         [d["g_irradiance"], d["t_panel"], d["t_ambient"], d["rh_ambient"], d["hour_of_day"]]
@@ -75,18 +83,18 @@ def evaluate_trained_models(models_dir: str = "", output_json: str = "") -> dict
     rmse = np.sqrt(mean_squared_error(y_test_reg, y_pred_reg))
     mae = mean_absolute_error(y_test_reg, y_pred_reg)
 
-    # 4. Cálculo de Tasas de Falsos Positivos y Falsos Negativos
-    # Para la clase NORMAL: un falso positivo ocurre cuando siendo NORMAL se clasifica como falla
+    # 4. Tasas de Falsos Positivos en Operación Normal
     normal_idx = classes.index("NORMAL")
     tn = cm[normal_idx, normal_idx]
     fp = np.sum(cm[normal_idx, :]) - tn
-    fn = np.sum(cm[:, normal_idx]) - tn
-    tp = np.sum(cm) - (tn + fp + fn)
-
     fpr_normal = (fp / max(1, (fp + tn))) * 100.0
-    fnr_normal = (fn / max(1, (fn + tp))) * 100.0
 
     results = {
+        "evaluation_protocol": f"Temporal Split {meta.get('train_days', 250)}d Train / {meta.get('test_days', 115)}d Out-of-Time Test",
+        "climate_source": meta.get("climate_source", ""),
+        "train_date_range": meta.get("train_date_range", ""),
+        "test_date_range": meta.get("test_date_range", ""),
+        "test_total_samples": len(test_data),
         "classifier_accuracy_pct": round(acc * 100.0, 2),
         "regressor_r2_score": round(r2, 4),
         "regressor_rmse_watts": round(rmse, 2),
@@ -118,13 +126,15 @@ if __name__ == "__main__":
     res = evaluate_trained_models(output_json=out_file)
 
     print("=" * 75)
-    print("INFORME DE EVALUACIÓN ESTADÍSTICA DE MODELOS DE IA (FASE 9)")
+    print("INFORME DE EVALUACIÓN ESTADÍSTICA ANUAL (250d TRAIN / 115d TEST REAL)")
     print("=" * 75)
+    print(f"• Fuente Climática: {res['climate_source']}")
+    print(f"• Entrenamiento: {res['train_date_range']} | Prueba: {res['test_date_range']}")
     print(f"• Precisión Global del Clasificador (Accuracy): {res['classifier_accuracy_pct']}%")
     print(f"• Tasa de Falsos Positivos en Operación Normal (FPR): {res['normal_false_positive_rate_pct']}%")
     print(f"• Coeficiente R² del Predictor de Potencia: {res['regressor_r2_score']}")
     print(f"• Error RMSE del Predictor: {res['regressor_rmse_watts']} W | MAE: {res['regressor_mae_watts']} W")
-    
+
     print("\nDesglose de Métricas por Categoría de Falla (Precision / Recall / F1):")
     print(f"{'Categoría':<22} | {'Precision':<10} | {'Recall':<10} | {'F1-Score':<10} | {'Soporte'}")
     print("-" * 75)

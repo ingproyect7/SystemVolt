@@ -1,9 +1,14 @@
 {
-  "classifier_accuracy_pct": 99.86,
-  "regressor_r2_score": 0.995,
-  "regressor_rmse_watts": 17.9,
-  "regressor_mae_watts": 13.07,
-  "normal_false_positive_rate_pct": 0.0,
+  "evaluation_protocol": "Temporal Split 250d Train / 115d Out-of-Time Test",
+  "climate_source": "NASA POWER Hourly 2025 (Medellin, Colombia 6.2442, -75.5812)",
+  "train_date_range": "2025-01-01 .. 2025-09-07",
+  "test_date_range": "2025-09-08 .. 2025-12-31",
+  "test_total_samples": 8715,
+  "classifier_accuracy_pct": 99.97,
+  "regressor_r2_score": 0.997,
+  "regressor_rmse_watts": 11.78,
+  "regressor_mae_watts": 8.48,
+  "normal_false_positive_rate_pct": 0.08,
   "classes": [
     "HOTSPOT",
     "INVERTER_FAULT",
@@ -15,17 +20,8 @@
   ],
   "confusion_matrix": [
     [
-      198,
+      1245,
       0,
-      0,
-      0,
-      0,
-      2,
-      0
-    ],
-    [
-      0,
-      200,
       0,
       0,
       0,
@@ -34,8 +30,8 @@
     ],
     [
       0,
+      1245,
       0,
-      200,
       0,
       0,
       0,
@@ -44,8 +40,17 @@
     [
       0,
       0,
+      1244,
       0,
-      200,
+      0,
+      1,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      1245,
       0,
       0,
       0
@@ -55,7 +60,7 @@
       0,
       0,
       0,
-      200,
+      1245,
       0,
       0
     ],
@@ -65,8 +70,8 @@
       0,
       0,
       0,
-      200,
-      0
+      1243,
+      2
     ],
     [
       0,
@@ -75,51 +80,51 @@
       0,
       0,
       0,
-      200
+      1245
     ]
   ],
   "metrics_per_class": {
     "HOTSPOT": {
       "precision": 100.0,
-      "recall": 99.0,
-      "f1_score": 99.5,
-      "support": 200.0
+      "recall": 100.0,
+      "f1_score": 100.0,
+      "support": 1245.0
     },
     "INVERTER_FAULT": {
       "precision": 100.0,
       "recall": 100.0,
       "f1_score": 100.0,
-      "support": 200.0
+      "support": 1245.0
     },
     "NORMAL": {
       "precision": 100.0,
-      "recall": 100.0,
-      "f1_score": 100.0,
-      "support": 200.0
+      "recall": 99.92,
+      "f1_score": 99.96,
+      "support": 1245.0
     },
     "SENSOR_FAULT": {
       "precision": 100.0,
       "recall": 100.0,
       "f1_score": 100.0,
-      "support": 200.0
+      "support": 1245.0
     },
     "SHADING": {
       "precision": 100.0,
       "recall": 100.0,
       "f1_score": 100.0,
-      "support": 200.0
+      "support": 1245.0
     },
     "SOILING": {
-      "precision": 99.01,
-      "recall": 100.0,
-      "f1_score": 99.5,
-      "support": 200.0
+      "precision": 99.92,
+      "recall": 99.84,
+      "f1_score": 99.88,
+      "support": 1245.0
     },
     "STRING_DISCONNECTED": {
-      "precision": 100.0,
+      "precision": 99.84,
       "recall": 100.0,
-      "f1_score": 100.0,
-      "support": 200.0
+      "f1_score": 99.92,
+      "support": 1245.0
     }
   }
 }
