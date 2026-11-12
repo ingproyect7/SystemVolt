@@ -48,10 +48,7 @@ def evaluate_trained_models(models_dir: str = "", output_json: str = "") -> dict
 
     # 1. Generar conjunto de prueba independiente (Holdout Test Set)
     print("Generando 1,400 muestras de prueba independientes (seed=9999)...")
-    # Generar muestras con semilla distinta
-    import random
-    random.seed(9999)
-    test_data = generate_pv_dataset(samples_per_category=200)
+    test_data = generate_pv_dataset(samples_per_category=200, seed=9999)
 
     # 2. Evaluación del Clasificador Multiclase
     X_test_clf = np.array([

@@ -23,10 +23,6 @@ export const AIDiagnostics: React.FC<AIDiagnosticsProps> = ({
           </h2>
           <p className="text-xs text-slate-400">Arquitectura Híbrida: Física de Semiconductores + Machine Learning + Explicabilidad XAI</p>
         </div>
-        <div className="flex items-center space-x-2 text-xs font-mono bg-amber-500/10 text-amber-400 border border-amber-500/20 px-3 py-1.5 rounded-lg">
-          <Brain className="h-4 w-4" />
-          <span>Inferencia Local &amp; Edge Analytics Activa</span>
-        </div>
       </div>
 
       {/* Diagnóstico en tiempo real: datos reales/inyectados o estado de espera */}
@@ -80,7 +76,7 @@ export const AIDiagnostics: React.FC<AIDiagnosticsProps> = ({
           <p className="text-xs text-slate-300 leading-relaxed">
             Modelo supervisado de ensamble que aprende no-linealidades atmosféricas, ángulo cenital solar y radiación difusa para predecir P_esperada.
           </p>
-          <span className="mt-3 block text-[11px] font-mono text-emerald-400 font-bold">R² Score: 0.9916</span>
+          <span className="mt-3 block text-[11px] font-mono text-emerald-400 font-bold">R² Score: 0.995</span>
         </div>
 
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-lg">
@@ -102,7 +98,7 @@ export const AIDiagnostics: React.FC<AIDiagnosticsProps> = ({
           <p className="text-xs text-slate-300 leading-relaxed">
             Discrimina entre sombreado, suciedad, desconexión de string, falla de inversor o hotspot térmico con explicabilidad SHAP.
           </p>
-          <span className="mt-3 block text-[11px] font-mono text-emerald-400 font-bold">Precisión: 100%</span>
+          <span className="mt-3 block text-[11px] font-mono text-emerald-400 font-bold">Precisión: 99.86%</span>
         </div>
       </div>
     </div>

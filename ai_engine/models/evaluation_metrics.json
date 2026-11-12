@@ -1,8 +1,8 @@
 {
-  "classifier_accuracy_pct": 100.0,
-  "regressor_r2_score": 0.9971,
-  "regressor_rmse_watts": 13.21,
-  "regressor_mae_watts": 9.5,
+  "classifier_accuracy_pct": 99.86,
+  "regressor_r2_score": 0.995,
+  "regressor_rmse_watts": 17.9,
+  "regressor_mae_watts": 13.07,
   "normal_false_positive_rate_pct": 0.0,
   "classes": [
     "HOTSPOT",
@@ -15,12 +15,12 @@
   ],
   "confusion_matrix": [
     [
-      200,
+      198,
       0,
       0,
       0,
       0,
-      0,
+      2,
       0
     ],
     [
@@ -81,8 +81,8 @@
   "metrics_per_class": {
     "HOTSPOT": {
       "precision": 100.0,
-      "recall": 100.0,
-      "f1_score": 100.0,
+      "recall": 99.0,
+      "f1_score": 99.5,
       "support": 200.0
     },
     "INVERTER_FAULT": {
@@ -110,9 +110,9 @@
       "support": 200.0
     },
     "SOILING": {
-      "precision": 100.0,
+      "precision": 99.01,
       "recall": 100.0,
-      "f1_score": 100.0,
+      "f1_score": 99.5,
       "support": 200.0
     },
     "STRING_DISCONNECTED": {
